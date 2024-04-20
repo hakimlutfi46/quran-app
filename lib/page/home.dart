@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
+import 'package:quran_app/page/detail.dart';
 
 class HomePage extends StatefulWidget {
   const HomePage({super.key});
@@ -11,13 +12,21 @@ class HomePage extends StatefulWidget {
 
 class _HomePageState extends State<HomePage> {
   List<dynamic> surats = [];
-  int selectedJuz = 1;
+  List<dynamic> filteredSurats = [];
   bool isLoading = false;
+  TextEditingController searchController =
+      TextEditingController(); // Controller untuk input search
 
   @override
   void initState() {
     super.initState();
-    fetchSurat(selectedJuz);
+    fetchSurat();
+  }
+
+  @override
+  void dispose() {
+    searchController.dispose(); // Hapus controller saat widget di dispose
+    super.dispose();
   }
 
   @override
@@ -31,28 +40,23 @@ class _HomePageState extends State<HomePage> {
         ),
       ),
       body: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 20),
+        padding: const EdgeInsets.all(8),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            DropdownButton<int>(
-              value: selectedJuz,
-              onChanged: (newValue) {
-                setState(() {
-                  selectedJuz = newValue!;
-                  fetchSurat(selectedJuz);
-                });
+            //  TextField untuk input search
+            TextField(
+              controller: searchController,
+              cursorColor: Colors.green,
+              decoration: const InputDecoration(
+                hintText: 'Cari Surat',
+                focusColor: Colors.green,
+                prefixIcon: Icon(Icons.search),
+              ),
+              onChanged: (value) {
+                filterSurats(value);
               },
-              items: List.generate(30, (index) {
-                return DropdownMenuItem<int>(
-                  value: index + 1,
-                  child: Padding(
-                      padding: const EdgeInsets.only(left: 10),
-                      child: Text('Juz ${index + 1}')),
-                );
-              }),
             ),
-            const SizedBox(height: 20),
             isLoading
                 ? const Padding(
                     padding: EdgeInsets.only(left: 10),
@@ -62,35 +66,90 @@ class _HomePageState extends State<HomePage> {
                   )
                 : Expanded(
                     child: ListView.builder(
-                      itemCount: surats.length,
-                      itemBuilder: (context, index) {
-                        final surat = surats[index];
-                        final judul = surat['englishName'];
-                        final judulArab = surat['name'];
-                        final arti = surat['englishNameTranslation'];
-                        final jumlmahAyat = surat['numberOfAyahs'];
-
-                        return ListTile(
-                          onTap: () {},
-                          title: Text('$judul ($judulArab)'),
-                          subtitle: Text(arti),
-                          trailing: Text('$jumlmahAyat Ayat'),
+                    itemCount: filteredSurats.isEmpty
+                        ? 1
+                        : filteredSurats
+                            .length, // Gunakan 1 jika tidak ada hasil
+                    itemBuilder: (context, index) {
+                      if (filteredSurats.isEmpty) {
+                        // Tampilkan jika hasil pencarian kosong
+                        return const Center(
+                          child: Text(
+                            'Tidak ada data',
+                            style: TextStyle(fontSize: 16),
+                          ),
                         );
-                      },
-                    ),
-                  ),
+                      }
+
+                      final surat = filteredSurats[index];
+                      final judul = surat['namaLatin'];
+                      final judulArab = surat['nama'];
+                      final arti = surat['arti'];
+                      final jumlmahAyat = surat['jumlahAyat'];
+
+                      return ListTile(
+                        onTap: () {
+                          handleSuratTap(
+                            context,
+                            surat['nomor'].toString(),
+                            surat['namaLatin'],
+                            surat['nama'],
+                            surat['arti'],
+                            surat['tempatTurun'],
+                            surat['jumlahAyat'].toString(),
+                          );
+                        },
+                        leading: CircleAvatar(
+                          backgroundColor: Colors.green,
+                          child: Text(
+                            surat['nomor'].toString(),
+                            style: const TextStyle(color: Colors.white),
+                          ),
+                        ),
+                        title: Text('$judul ($judulArab)'),
+                        subtitle: Text(arti),
+                        trailing: Text('$jumlmahAyat Ayat'),
+                      );
+                    },
+                  )),
           ],
         ),
       ),
     );
   }
 
-  void fetchSurat(int juz) async {
+  void handleSuratTap(
+    BuildContext context,
+    String suratId,
+    String suratTitle,
+    String suratTitleArab,
+    String arti,
+    String tempatTurun,
+    String jumlahAyat,
+  ) {
+    print('Surat ID: $suratId $suratTitle');
+
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => DetailPage(
+          suratId: suratId,
+          suratTitle: suratTitle,
+          suratTitleArab: suratTitleArab,
+          arti: arti,
+          tempatTurun: tempatTurun,
+          jumlahAyat: jumlahAyat,
+        ),
+      ),
+    );
+  }
+
+  void fetchSurat() async {
     setState(() {
       isLoading = true;
     });
 
-    String url = 'https://api.alquran.cloud/v1/juz/$juz/ar.asad';
+    String url = 'https://equran.id/api/v2/surat';
 
     try {
       final uri = Uri.parse(url);
@@ -100,14 +159,22 @@ class _HomePageState extends State<HomePage> {
         final body = response.body;
         final json = jsonDecode(body);
 
-        List<dynamic> suratData = json['data']['surahs'].values.toList();
+        if (json['data'] != null && json['data'] is List) {
+          List<dynamic> suratData = json['data'];
 
-        setState(() {
-          surats = suratData;
-          isLoading = false;
-        });
+          setState(() {
+            surats = suratData;
+            filteredSurats = surats;
+            isLoading = false;
+          });
 
-        print('Fetch Surats Complete');
+          print('Fetch Surats Complete');
+        } else {
+          print('Failed to fetch surats: Data structure is incorrect');
+          setState(() {
+            isLoading = false;
+          });
+        }
       } else {
         print('Failed to fetch surats: ${response.statusCode}');
         setState(() {
@@ -120,5 +187,26 @@ class _HomePageState extends State<HomePage> {
         isLoading = false;
       });
     }
+  }
+
+  void filterSurats(String query) {
+    // Jika query kosong, tampilkan semua surah
+    if (query.isEmpty) {
+      setState(() {
+        filteredSurats = surats;
+      });
+      return;
+    }
+
+    // Filter surah berdasarkan nama atau nomor
+    List<dynamic> filteredList = surats.where((surat) {
+      final judul = surat['namaLatin'].toString().toLowerCase();
+      final nomor = surat['nomor'].toString();
+      return judul.contains(query.toLowerCase()) || nomor.contains(query);
+    }).toList();
+
+    setState(() {
+      filteredSurats = filteredList;
+    });
   }
 }
